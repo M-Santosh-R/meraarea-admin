@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-turbopack)",
+      "Bash(npx --yes shadcn@latest init -y -b neutral)",
+      "Bash(npx --yes shadcn@latest init --help)",
+      "Bash(npm ls *)",
+      "Bash(npm install *)",
+      "Bash(npx prisma *)",
+      "Bash(node -e \"const l = require\\('lucide-react'\\); console.log\\(typeof l.icons, Object.keys\\(l.icons || {}\\).slice\\(0,5\\)\\); console.log\\(!!l.Smile, !!l.Hospital, !!l.UtensilsCrossed, !!l.BedDouble, !!l.Landmark, !!l.Printer, !!l.ShoppingCart, !!l.Store, !!l.GraduationCap, !!l.Wrench, !!l.Scissors, !!l.Pill\\)\")",
+      "Bash(npm run *)",
+      "Bash(npm -v)",
+      "Read(//Users/prime/Downloads/**)",
+      "Bash(xargs -I{} echo {})"
+    ]
+  }
+}

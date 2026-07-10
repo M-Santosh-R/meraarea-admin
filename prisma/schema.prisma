@@ -1,0 +1,204 @@
+// MeraArea Admin Panel — database schema
+// Mirrors the design in /Users/prime/.claude/plans/design-a-modern-clean-linked-dream.md
+// Hosted on Supabase Postgres; Storage bucket "business-images" holds gallery files.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AdminRole {
+  super_admin
+  admin
+  editor
+}
+
+enum AdminStatus {
+  active
+  inactive
+}
+
+enum AreaType {
+  country
+  state
+  city
+  locality
+}
+
+enum PublishStatus {
+  published
+  draft
+}
+
+enum ServiceStatus {
+  active
+  inactive
+}
+
+enum BusinessStatus {
+  draft
+  published
+  archived
+}
+
+enum DayOfWeek {
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+  sunday
+}
+
+model Admin {
+  id          String      @id @default(uuid())
+  name        String
+  email       String      @unique
+  role        AdminRole   @default(admin)
+  status      AdminStatus @default(active)
+  avatarUrl   String?     @map("avatar_url")
+  lastLoginAt DateTime?   @map("last_login_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  businesses  Business[]  @relation("BusinessCreatedBy")
+
+  @@map("admins")
+}
+
+model Area {
+  id             String        @id @default(uuid())
+  name           String
+  slug           String        @unique
+  type           AreaType
+  parentId       String?       @map("parent_id")
+  parent         Area?         @relation("AreaHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Area[]        @relation("AreaHierarchy")
+  country        String?
+  state          String?
+  city           String?
+  locality       String?
+  description    String?
+  imageUrl       String?       @map("image_url")
+  seoTitle       String?       @map("seo_title")
+  seoDescription String?       @map("seo_description")
+  isFeatured     Boolean       @default(false) @map("is_featured")
+  status         PublishStatus @default(draft)
+  businesses     Business[]
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([parentId])
+  @@index([type])
+  @@map("areas")
+}
+
+model Category {
+  id             String        @id @default(uuid())
+  name           String
+  slug           String        @unique
+  icon           String?
+  description    String?
+  imageUrl       String?       @map("image_url")
+  seoTitle       String?       @map("seo_title")
+  seoDescription String?       @map("seo_description")
+  displayOrder   Int           @default(0) @map("display_order")
+  status         PublishStatus @default(draft)
+  businesses     Business[]
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@map("categories")
+}
+
+model Service {
+  id          String            @id @default(uuid())
+  name        String
+  slug        String            @unique
+  description String?
+  status      ServiceStatus     @default(active)
+  businesses  BusinessService[]
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  @@map("services")
+}
+
+model Business {
+  id               String            @id @default(uuid())
+  name             String
+  slug             String
+  areaId           String            @map("area_id")
+  area             Area              @relation(fields: [areaId], references: [id])
+  categoryId       String            @map("category_id")
+  category         Category          @relation(fields: [categoryId], references: [id])
+  status           BusinessStatus    @default(draft)
+  shortDescription String?           @map("short_description")
+  fullDescription  String?           @map("full_description")
+  phone            String?
+  alternatePhone   String?           @map("alternate_phone")
+  whatsapp         String?
+  email            String?
+  website          String?
+  address          String?
+  googleMapsUrl    String?           @map("google_maps_url")
+  latitude         Decimal?          @db.Decimal(9, 6)
+  longitude        Decimal?          @db.Decimal(9, 6)
+  seoTitle         String?           @map("seo_title")
+  seoDescription   String?           @map("seo_description")
+  featuredHomepage Boolean           @default(false) @map("featured_homepage")
+  featuredAreaPage Boolean           @default(false) @map("featured_area_page")
+  featuredUntil    DateTime?         @map("featured_until")
+  isVerified       Boolean           @default(false) @map("is_verified")
+  createdById      String?           @map("created_by")
+  createdBy        Admin?            @relation("BusinessCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  images           BusinessImage[]
+  hours            BusinessHour[]
+  services         BusinessService[]
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@unique([areaId, slug])
+  @@index([areaId, categoryId, status])
+  @@index([categoryId, status])
+  @@index([status, createdAt])
+  @@map("businesses")
+}
+
+model BusinessImage {
+  id           String   @id @default(uuid())
+  businessId   String   @map("business_id")
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  url          String
+  displayOrder Int      @default(0) @map("display_order")
+  isCover      Boolean  @default(false) @map("is_cover")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("business_images")
+}
+
+model BusinessHour {
+  id         String    @id @default(uuid())
+  businessId String    @map("business_id")
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  dayOfWeek  DayOfWeek @map("day_of_week")
+  openTime   String?   @map("open_time")
+  closeTime  String?   @map("close_time")
+  isClosed   Boolean   @default(false) @map("is_closed")
+
+  @@unique([businessId, dayOfWeek])
+  @@map("business_hours")
+}
+
+model BusinessService {
+  businessId String   @map("business_id")
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  serviceId  String   @map("service_id")
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, serviceId])
+  @@map("business_services")
+}
