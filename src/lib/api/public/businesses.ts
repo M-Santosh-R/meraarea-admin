@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { PUBLIC_BUSINESS_WHERE, activeFeaturedWhere } from "@/lib/api/public/where";
+import { PUBLIC_AREA_WHERE, PUBLIC_BUSINESS_WHERE, activeFeaturedWhere } from "@/lib/api/public/where";
 import type { Paginated } from "@/lib/api/public/types";
 import {
   BUSINESS_CARD_INCLUDE,
@@ -69,41 +69,40 @@ export async function getRelatedBusinesses(
   business: { id: string; areaId: string; categoryId: string },
   take = 6
 ) {
-  const sameAreaAndCategory = await prisma.business.findMany({
-    where: {
-      ...PUBLIC_BUSINESS_WHERE,
-      categoryId: business.categoryId,
-      areaId: business.areaId,
-      id: { not: business.id },
-    },
-    include: BUSINESS_CARD_INCLUDE,
-    orderBy: [{ createdAt: "desc" }],
-    take,
-  });
+  // Run both tiers concurrently instead of only querying the fallback tier
+  // when the first comes up short — trades one extra (cheap, indexed) query
+  // in the common case for never paying two sequential round trips.
+  const [sameAreaAndCategory, sameCategoryOtherAreas] = await Promise.all([
+    prisma.business.findMany({
+      where: {
+        ...PUBLIC_BUSINESS_WHERE,
+        categoryId: business.categoryId,
+        areaId: business.areaId,
+        id: { not: business.id },
+      },
+      include: BUSINESS_CARD_INCLUDE,
+      orderBy: [{ createdAt: "desc" }],
+      take,
+    }),
+    prisma.business.findMany({
+      where: {
+        ...PUBLIC_BUSINESS_WHERE,
+        categoryId: business.categoryId,
+        areaId: { not: business.areaId },
+        id: { not: business.id },
+      },
+      include: BUSINESS_CARD_INCLUDE,
+      orderBy: [{ createdAt: "desc" }],
+      take,
+    }),
+  ]);
 
-  if (sameAreaAndCategory.length >= take) {
-    return sameAreaAndCategory.map(toBusinessCard);
-  }
-
-  const remaining = take - sameAreaAndCategory.length;
-  const excludeIds = [business.id, ...sameAreaAndCategory.map((b) => b.id)];
-  const sameCategoryOtherAreas = await prisma.business.findMany({
-    where: {
-      ...PUBLIC_BUSINESS_WHERE,
-      categoryId: business.categoryId,
-      id: { notIn: excludeIds },
-    },
-    include: BUSINESS_CARD_INCLUDE,
-    orderBy: [{ createdAt: "desc" }],
-    take: remaining,
-  });
-
-  return [...sameAreaAndCategory, ...sameCategoryOtherAreas].map(toBusinessCard);
+  return [...sameAreaAndCategory, ...sameCategoryOtherAreas].slice(0, take).map(toBusinessCard);
 }
 
-export async function getPublicBusinessBySlug(areaId: string, businessSlug: string) {
+export async function getPublicBusinessBySlug(areaSlug: string, businessSlug: string) {
   const business = await prisma.business.findFirst({
-    where: { ...PUBLIC_BUSINESS_WHERE, areaId, slug: businessSlug },
+    where: { ...PUBLIC_BUSINESS_WHERE, slug: businessSlug, area: { ...PUBLIC_AREA_WHERE, slug: areaSlug } },
     include: BUSINESS_DETAIL_INCLUDE,
   });
   if (!business) return null;

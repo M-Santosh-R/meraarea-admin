@@ -4,6 +4,7 @@ import { jsonOk, jsonError } from "@/lib/api/http";
 import { PUBLIC_CATEGORY_WHERE, PUBLIC_BUSINESS_WHERE } from "@/lib/api/public/where";
 import {
   getPublicAreaBySlug,
+  getAllAreasFlat,
   getDescendantAreaIds,
   getBusinessCountsByArea,
   attachBusinessCount,
@@ -16,10 +17,10 @@ type Params = { params: Promise<{ areaSlug: string; categorySlug: string }> };
 export async function GET(request: NextRequest, { params }: Params) {
   const { areaSlug, categorySlug } = await params;
 
-  const area = await getPublicAreaBySlug(areaSlug);
+  const [area, allAreas] = await Promise.all([getPublicAreaBySlug(areaSlug), getAllAreasFlat()]);
   if (!area) return jsonError("Area not found.", 404);
 
-  const descendantIds = await getDescendantAreaIds(area.id);
+  const descendantIds = await getDescendantAreaIds(area.id, allAreas);
   const areaIds = [area.id, ...descendantIds];
 
   const [category, businessCounts] = await Promise.all([
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         _count: { select: { businesses: { where: { ...PUBLIC_BUSINESS_WHERE, areaId: { in: areaIds } } } } },
       },
     }),
-    getBusinessCountsByArea(),
+    getBusinessCountsByArea(allAreas),
   ]);
   if (!category) return jsonError("Category not found.", 404);
 

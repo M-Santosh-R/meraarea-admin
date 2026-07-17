@@ -9,22 +9,38 @@ export async function getPublicAreaBySlug(slug: string) {
   });
 }
 
-/**
- * Walks the parentId chain up to the root, root-first. Area hierarchy is at
- * most 4 levels deep (country > state > city > locality), so a simple loop
- * of sequential lookups is simpler to reason about than a recursive query.
- */
-export async function getAreaAncestors(area: {
-  parentId: string | null;
-}): Promise<AreaBreadcrumbEntry[]> {
-  const ancestors: AreaBreadcrumbEntry[] = [];
-  let parentId = area.parentId;
+type FlatArea = { id: string; name: string; slug: string; parentId: string | null };
 
+/**
+ * The full areas table, flattened for in-memory tree walks. Small even at
+ * multi-city scale, so callers that need more than one derived view of the
+ * hierarchy (ancestors, descendants, counts) in the same request should fetch
+ * this once and pass it to each `*From`/optional-`allAreas` helper below,
+ * instead of each helper re-fetching the whole table independently.
+ */
+export async function getAllAreasFlat(): Promise<FlatArea[]> {
+  return prisma.area.findMany({ select: { id: true, name: true, slug: true, parentId: true } });
+}
+
+/**
+ * Walks the parentId chain up to the root, root-first. Areas table is small
+ * even at multi-city scale (same premise as getDescendantAreaIds below), so
+ * one flat fetch plus an in-memory walk beats one sequential round trip per
+ * hierarchy level (country > state > city > locality).
+ */
+export async function getAreaAncestors(
+  area: { parentId: string | null },
+  preloadedAreas?: FlatArea[]
+): Promise<AreaBreadcrumbEntry[]> {
+  if (!area.parentId) return [];
+
+  const allAreas = preloadedAreas ?? (await getAllAreasFlat());
+  const byId = new Map(allAreas.map((a) => [a.id, a]));
+
+  const ancestors: AreaBreadcrumbEntry[] = [];
+  let parentId: string | null = area.parentId;
   while (parentId) {
-    const parent = await prisma.area.findUnique({
-      where: { id: parentId },
-      select: { id: true, name: true, slug: true, parentId: true },
-    });
+    const parent = byId.get(parentId);
     if (!parent) break;
     ancestors.unshift({ id: parent.id, name: parent.name, slug: parent.slug });
     parentId = parent.parentId;
@@ -55,8 +71,8 @@ export async function getSiblingAreas(area: { id: string; parentId: string | nul
  * The areas table is small even at multi-city scale, so one flat fetch plus
  * an in-memory tree walk is simpler than a recursive SQL CTE.
  */
-export async function getDescendantAreaIds(areaId: string): Promise<string[]> {
-  const allAreas = await prisma.area.findMany({ select: { id: true, parentId: true } });
+export async function getDescendantAreaIds(areaId: string, preloadedAreas?: FlatArea[]): Promise<string[]> {
+  const allAreas = preloadedAreas ?? (await getAllAreasFlat());
 
   const childrenByParent = new Map<string, string[]>();
   for (const area of allAreas) {
@@ -87,9 +103,9 @@ export async function getDescendantAreaIds(areaId: string): Promise<string[]> {
  * area fetch, one grouped business count) plus an in-memory post-order sum,
  * rather than one query per area.
  */
-export async function getBusinessCountsByArea(): Promise<Map<string, number>> {
+export async function getBusinessCountsByArea(preloadedAreas?: FlatArea[]): Promise<Map<string, number>> {
   const [allAreas, directCounts] = await Promise.all([
-    prisma.area.findMany({ select: { id: true, parentId: true } }),
+    preloadedAreas ?? getAllAreasFlat(),
     prisma.business.groupBy({
       by: ["areaId"],
       where: PUBLIC_BUSINESS_WHERE,

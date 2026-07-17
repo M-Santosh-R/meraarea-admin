@@ -9,6 +9,7 @@ import {
 import {
   getPublicAreaBySlug,
   getAreaAncestors,
+  getAllAreasFlat,
   getDescendantAreaIds,
   getSiblingAreas,
   getBusinessCountsByArea,
@@ -21,7 +22,10 @@ type Params = { params: Promise<{ areaSlug: string }> };
 
 export async function GET(request: NextRequest, { params }: Params) {
   const { areaSlug } = await params;
-  const area = await getPublicAreaBySlug(areaSlug);
+  // area and allAreas are independent lookups against the same table — fire
+  // together instead of sequentially, then derive descendants/ancestors/
+  // counts from the one preloaded array below instead of each re-fetching it.
+  const [area, allAreas] = await Promise.all([getPublicAreaBySlug(areaSlug), getAllAreasFlat()]);
   if (!area) return jsonError("Area not found.", 404);
 
   const { searchParams } = request.nextUrl;
@@ -30,12 +34,12 @@ export async function GET(request: NextRequest, { params }: Params) {
   const sort = searchParams.get("sort") ?? undefined;
   const featuredOnly = searchParams.get("featured") === "true";
 
-  const descendantIds = await getDescendantAreaIds(area.id);
+  const descendantIds = await getDescendantAreaIds(area.id, allAreas);
   const areaIds = [area.id, ...descendantIds];
 
   const [breadcrumb, categoriesInArea, featuredBusinesses, businesses, nearbyAreas, businessCounts] =
     await Promise.all([
-      getAreaAncestors(area),
+      getAreaAncestors(area, allAreas),
       prisma.category.findMany({
         where: { ...PUBLIC_CATEGORY_WHERE, businesses: { some: { areaId: { in: areaIds }, status: "published" } } },
         include: { _count: { select: { businesses: { where: { ...PUBLIC_BUSINESS_WHERE, areaId: { in: areaIds } } } } } },
@@ -54,7 +58,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       }),
       listPublicBusinesses({ areaIds, sort, featuredOnly, page, limit }),
       getSiblingAreas(area),
-      getBusinessCountsByArea(),
+      getBusinessCountsByArea(allAreas),
     ]);
 
   return jsonOk({
